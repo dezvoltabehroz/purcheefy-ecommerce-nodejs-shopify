@@ -17,8 +17,6 @@ const tables = require("../../dbLayer/db.tables");
 // Getting shopify Rest API promise
 const { shopifyRestAPIPromise } = require('../shopify.service')
 
-const { enable_exception_log, enable_log_detail } = process.env;
-
 // Global Variable Declaration 
 // var checkouts = [];
 
@@ -54,13 +52,13 @@ exports.upsertAbandonedCart = async (storeId, abandonedCart) => {
             const res = await query(upsertAbandonedCartQuery);
             return res.rowCount
         } catch (exc) {
-            if (enable_exception_log == 1)
-                console.log('exception in upsert cart query run', exc);
+
+            console.log('exception in upsert cart query run', exc);
             return exc;
         }
     } catch (exception) {
-        if (enable_exception_log == 1)
-            console.log('exception in upsert cart', exception);
+
+        console.log('exception in upsert cart', exception);
         return false;
     }
 }
@@ -87,11 +85,11 @@ exports.getAbandonedCarts = async (store, dateTime = null, checkouts, prevDate =
 
         const params2 = { ...params1 };
         params2.url = `/checkouts.json?limit=250&updated_at_min=${dateTime}`
-        if (enable_log_detail == 1) console.log("URL Path : ", params2.url)
+        console.log("URL Path : ", params2.url)
 
         let result = await shopifyRestAPIPromise(params2)
         let finalResult = checkouts;
-        if (enable_log_detail == 1) console.log("Result Data Count : ", result.data.checkouts.length)
+        console.log("Result Data Count : ", result.data.checkouts.length)
 
         if (prevDate && nextDate && moment(prevDate).format('YYYY-MM-DD hh:mm:ss') == moment(nextDate).format('YYYY-MM-DD hh:mm:ss'))
             return finalResult;
@@ -103,7 +101,7 @@ exports.getAbandonedCarts = async (store, dateTime = null, checkouts, prevDate =
 
         return finalResult;
     } catch (exc) {
-        if (enable_exception_log == 1) console.log('exception to get abandoned carts', exc)
+        console.log('exception to get abandoned carts', exc)
         return exc;
     }
 }

@@ -4,6 +4,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const cron = require('node-cron');
 
 // Middlewares
 const { response, errorHandler } = require('./middlewares');
@@ -56,6 +57,14 @@ const {
 app.use('/purcheefy/api/v1', indexRoutes);
 app.use('/purcheefy', migrationRoutes);
 app.use('/purcheefy/api/v1/customers', customerRoutes);
+
+// ====================== Cron Jobs =======================
+const syncController = require('../src/cron/controllers/syncController.controller');
+
+// Routes
+app.get('/sync/abandonedCart', syncController.syncCarts);
+
+// ====================== Cron Jobs =======================
 
 // catch 404 and forward to error handler
 app.use((req, res) => { res.reply({ statusCode: 404 }) });

@@ -2,10 +2,18 @@
 const format = require('pg-format');
 
 // Getting environment variables
-const { db_database } = process.env;
+const tableObj = require('../dbLayer/db.tables');
 
 // database Queries
 module.exports = {
+  // =========================== New Queries =============================
+  getAllStores: () => `select * from ${tableObj.store_details}`,
+  getStoreJobs: () => `select * from ${tableObj.store_jobs} where store_id = $1`,
+  upsertCart: (values) => format(`INSERT INTO ${tableObj.abandoned_carts} ( store_id, cart_id, token, cart_token, data, created_at, updated_at, completed_at, closed_at, deleted_at,cart_price,original_cart_value,total_line_count,cart_created_at ) VALUES %L ON CONFLICT ( store_id, cart_id ) DO UPDATE SET token = EXCLUDED.token, cart_token = EXCLUDED.cart_token, data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at, completed_at = EXCLUDED.completed_at, closed_at = EXCLUDED.closed_at, deleted_at = EXCLUDED.deleted_at, cart_price = EXCLUDED.cart_price, total_line_count = EXCLUDED.total_line_count WHERE ${tableObj.abandoned_carts}.status != 'recovered' and ${tableObj.abandoned_carts}.status != 'active' and ${tableObj.abandoned_carts}.status != 'archived'`, values),
+  upsertCartBackup: (values) => format(`INSERT INTO ${tableObj.abandoned_carts_backup} ( store_id, cart_id, token, cart_token, data, created_at, updated_at, completed_at, closed_at, deleted_at,cart_price,original_cart_value,total_line_count,cart_created_at ) VALUES %L ON CONFLICT ( store_id, cart_id ) DO UPDATE SET token = EXCLUDED.token, cart_token = EXCLUDED.cart_token, data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at, completed_at = EXCLUDED.completed_at, closed_at = EXCLUDED.closed_at, deleted_at = EXCLUDED.deleted_at, cart_price = EXCLUDED.cart_price, total_line_count = EXCLUDED.total_line_count WHERE ${tableObj.abandoned_carts_backup}.status != 'recovered' and ${tableObj.abandoned_carts_backup}.status != 'active' and ${tableObj.abandoned_carts_backup}.status != 'archived'`, values),
+
+
+  // =========================== Old Queries =============================
   selectAllQuery: (tableName, cols = '*') => `select ${cols} from ${tableName}`,
   countWhereQuery: (tableName, condition) => `SELECT COUNT('*') FROM ${tableName} WHERE ${condition}`,
   updateWhereQuery: (tableName, keyPairValues, condition) => {
@@ -26,8 +34,8 @@ module.exports = {
     const setValues = Object.keys(keyPairValues).map(key => key + "=" + keyPairValues[key]).join(", ");
     return `INSERT INTO ${tableName}(${columns}) VALUES(${values}) ON CONFLICT (${uniqueKeys}) DO UPDATE SET ${setValues}`
   },
-  upsertCart: (tableName, values) => format(`INSERT INTO ${db_database}.abandoned_carts ( store_id, cart_id, token, cart_token, data, created_at, updated_at, completed_at, closed_at, deleted_at,cart_price,original_cart_value,total_line_count,cart_created_at ) VALUES %L ON CONFLICT ( store_id, cart_id ) DO UPDATE SET token = EXCLUDED.token, cart_token = EXCLUDED.cart_token, data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at, completed_at = EXCLUDED.completed_at, closed_at = EXCLUDED.closed_at, deleted_at = EXCLUDED.deleted_at, cart_price = EXCLUDED.cart_price, total_line_count = EXCLUDED.total_line_count WHERE ${tableName}.status != 'recovered' and ${tableName}.status != 'active' and ${tableName}.status != 'archived'`, values),
-  upsertCartBackup: (tableName, values) => format(`INSERT INTO ${db_database}.abandoned_carts_backup ( store_id, cart_id, token, cart_token, data, created_at, updated_at, completed_at, closed_at, deleted_at,cart_price,original_cart_value,total_line_count,cart_created_at ) VALUES %L ON CONFLICT ( store_id, cart_id ) DO UPDATE SET token = EXCLUDED.token, cart_token = EXCLUDED.cart_token, data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at, completed_at = EXCLUDED.completed_at, closed_at = EXCLUDED.closed_at, deleted_at = EXCLUDED.deleted_at, cart_price = EXCLUDED.cart_price, total_line_count = EXCLUDED.total_line_count WHERE ${tableName}.status != 'recovered' and ${tableName}.status != 'active' and ${tableName}.status != 'archived'`, values),
+  
+  
   getProductDetails: (tableName) => `select * from ${tableName} where shopify_product_id = $1 and shopify_variant_id = $2`,
   upsertProduct: (tableName, values) => format(` INSERT INTO ${tableName} ( shopify_store_id, zbooni_product_id, shopify_product_id, shopify_variant_id, zbooni_product_details ) VALUES %L ON CONFLICT ( shopify_store_id, shopify_product_id, shopify_variant_id ) DO UPDATE SET zbooni_product_details = EXCLUDED.zbooni_product_details, zbooni_product_id = EXCLUDED.zbooni_product_id;`, values),
   getProductFromDB: () => `select store_info.zbooni_username,store_info.zbooni_password,store_info.shopify_store_name,store_info.shopify_store_access_token,products.* 

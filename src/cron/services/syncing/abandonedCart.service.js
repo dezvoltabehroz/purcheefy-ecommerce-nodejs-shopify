@@ -10,7 +10,10 @@ const cartService = require('../database/cart.service');
 const storeJobService = require('../database/storeJobs.service');
 
 // Getting db queries
-const { selectAllQuery, getWhereQuery, upsertCart, upsertCartBackup, getCartsWithDraftOrderIdAcrossStore } = require("../../dbLayer/db.queries");
+const {
+    getAllStores,
+    getStoreJobs,
+    getWhereQuery, upsertCart, upsertCartBackup, getCartsWithDraftOrderIdAcrossStore } = require("../../dbLayer/db.queries");
 
 // Query DB
 const { query } = require("../../dbLayer");
@@ -43,9 +46,8 @@ const productController = require('../../controllers/product.controller');
 const { formatResponseForDB, formatLineItem } = require("../../formatters/cart.formatters");
 const axios = require("axios");
 
-const { enable_log_detail, enable_exception_log } = process.env;
-
-let zbooniUsername = "", zbooniPassword = "";
+// Encryption and Decryption
+const { decryptData } = require('../../../utils/encryption')
 
 /**
  * Function to Sync Abandoned Carts
@@ -54,43 +56,24 @@ let zbooniUsername = "", zbooniPassword = "";
 exports.syncAbandonedCarts = async (lastExecutedTime = null, checkJobs = true) => {
     const responseObject = [];
     try {
-        const stores = await getStores();
+        const stores = await query(getAllStores(), []);
         if (stores.rowCount) {
             for (const store of stores.rows) {
                 if (store.is_product_sync_completed == true) {
                     lastExecutedTime = null;
                     if (checkJobs) {
-                        const storeJobRes = await storeJobService.getJobByStoreId(store.shopify_store_id)
+                        const storeJobRes = await query(getStoreJobs(), [store.id]);
                         if (storeJobRes.rowCount) {
                             lastExecutedTime = moment(storeJobRes.rows[0].executed_at).format(); // i.e 2022-04-23T13:27:52+05:00
                         }
                     }
 
-                    await cartService.getAbandonedCarts(store, lastExecutedTime, [])
+                    await cartService.getAbandonedCarts(decryptData(store.store_credentials_details), lastExecutedTime, [])
                         .then(async abandonedCarts => {
                             try {
                                 if (abandonedCarts && abandonedCarts.length) {
                                     const storeId = store.shopify_store_id
                                     const cartArray = [];
-                                    let accessToken = null;
-
-                                    await storeController.getStoreDetailsFromDB(storeId)
-                                        .then(async response => {
-                                            if (response.rowCount > 0) {
-                                                const { zbooni_username, zbooni_password } = response.rows[0];
-                                                zbooniUsername = zbooni_username;
-                                                zbooniPassword = zbooni_password;
-
-                                                const customer = await authService.login(zbooni_username, zbooni_password);
-                                                if (customer)
-                                                    accessToken = customer.access_token;
-                                            } else console.log(`No Store found against this storeID: ${storeId}`);
-                                        }).catch(error => {
-                                            if (enable_log_detail == 1 && enable_exception_log == 1)
-                                                console.log('ERROR: getStoreDetailsFromDB: ', { storeId, error: error.response.data })
-                                            else if (enable_log_detail == 0 && enable_exception_log == 1)
-                                                console.log(`ERROR: getStoreDetailsFromDB for Store ID : ${store.shopify_store_id} and Store Name : ${store.shopify_store_name}`)
-                                        });
 
                                     for (const abandonedCart of abandonedCarts) {
                                         if (abandonedCart['shipping_address'] && abandonedCart['shipping_address'].phone) {
@@ -202,8 +185,7 @@ exports.syncAbandonedCarts = async (lastExecutedTime = null, checkJobs = true) =
                                                             newLineItems.push(formatLineItem(lineItem, product, product.outOfStock, product.stock_count, product.tracksInventory, product.inventoryPolicy, product.selectedOptions))
                                                         })
                                                         .catch(error => {
-                                                            if (enable_exception_log == 1)
-                                                                console.log('ERROR: getProductDetails: ', error)
+                                                            console.log('ERROR: getProductDetails: ', error)
                                                         })
                                                 }
                                                 abandonedCart.cart_price = 0;
@@ -220,23 +202,11 @@ exports.syncAbandonedCarts = async (lastExecutedTime = null, checkJobs = true) =
                                                 }
                                                 abandonedCart.line_items = newLineItems;
                                                 abandonedCart.zbooniTax = null;
-
-                                                // ABANDONED_CARTS => EVENT
-                                                firebaseEventController.saveFirebaseEvents(moment.utc().format("Y-MM-DD HH:mm:ss"), 'ABANDONED_CARTS', abandonedCart['total_price'])
-                                                    .then(resp => {
-                                                        if (enable_log_detail == 1)
-                                                            console.log('RESPONSE: ABANDONED_CARTS: Events: ', { rowCount: resp.rowCount })
-                                                    })
-                                                    .catch(error => {
-                                                        if (enable_exception_log == 1)
-                                                            console.log('ERROR: ABANDONED_CARTS: Events: ', { error: error.message })
-                                                    });
-
+                                                
                                                 if (cartArray.filter(cartArray => cartArray.includes(abandonedCart.id)).length == 0)
                                                     cartArray.push(formatResponseForDB({ storeId, abandonedCart }))
                                             } else {
-                                                if (enable_log_detail == 1)
-                                                    console.log("=========> Not a Valid Number : ", abandonedCart['shipping_address'].phone)
+                                                console.log("=========> Not a Valid Number : ", abandonedCart['shipping_address'].phone)
                                             }
                                         }
                                     }
@@ -247,13 +217,11 @@ exports.syncAbandonedCarts = async (lastExecutedTime = null, checkJobs = true) =
                                     responseObject.push({ success: false, message: 'Abandoned carts not found in shopify', store })
                                 }
                             } catch (exception) {
-                                if (enable_exception_log == 1)
-                                    console.log('exception in upserting abandoned carts', exception)
+                                console.log('exception in upserting abandoned carts', exception)
                                 responseObject.push({ success: false, message: 'exception in upserting abandoned carts', store })
                             }
                         }).catch(error => {
-                            if (enable_exception_log == 1)
-                                console.log('exception in getting shopify checkouts', error.message)
+                            console.log('exception in getting shopify checkouts', error.message)
                             responseObject.push({ success: false, message: 'exception in getting shopify checkouts', store })
                         });
                     storeJobService.upsertStoreJob(store);
@@ -263,20 +231,10 @@ exports.syncAbandonedCarts = async (lastExecutedTime = null, checkJobs = true) =
             responseObject.push({ success: false, message: 'Stores not found in db.' })
         }
     } catch (exception) {
-        if (enable_exception_log == 1)
-            console.log('exception found', exception);
+        console.log('exception found', exception);
         responseObject.push({ success: false, message: 'Exception found', exception })
     }
     return responseObject
-};
-
-/**
- * Function to Get Stores
- * @return   {Object}                      Returns store after query process
- */
-const getStores = async () => {
-    const getStore = selectAllQuery(tables.shopify_store_info);
-    return await query(getStore);
 };
 
 /**
@@ -308,8 +266,7 @@ const getProductDetails = async (lineItem, storeId) => {
             } : [];
         }
     } catch (exception) {
-        if (enable_exception_log == 1)
-            console.log('exception in getProductDetails', exception)
+        console.log('exception in getProductDetails', exception)
     }
 };
 
@@ -319,123 +276,26 @@ const getProductDetails = async (lineItem, storeId) => {
  * @return   {log}                         Returns row count after query process
  */
 const upsertAbandonedInDb = (values) => {
-    let upsertCartQuery = upsertCart(tables.abandoned_carts, values);
-    let upsertCartBackupQuery = upsertCartBackup(tables.abandoned_carts_backup, values);
+    let upsertCartQuery = upsertCart(values);
+    let upsertCartBackupQuery = upsertCartBackup( values);
     upsertCartQuery = upsertCartQuery.replace(`\\" `, ` `)
     upsertCartBackupQuery = upsertCartBackupQuery.replace(`\\" `, ` `)
 
     query(upsertCartQuery)
         .then((resp) => {
-            const storeId = values[0][0];
-            const newCartsCount = values.length;
-
-            sendPushNotificationForNewCarts({ storeId, newCartsCount })
-
-            if (enable_log_detail == 1)
-                console.log('RESPONSE: CART ADD || rowCount ', resp.rowCount)
+            console.log('RESPONSE: CART ADD || rowCount ', resp.rowCount)
         })
         .catch((error) => {
-            if (enable_exception_log == 1)
-                console.log('ERROR: upsertAbandonedInDb: CART ADD: ', error)
+            console.log('ERROR: upsertAbandonedInDb: CART ADD: ', error)
         });
 
     query(upsertCartBackupQuery)
         .then((resp) => {
-            if (enable_log_detail == 1)
-                console.log('RESPONSE: CART BACKUP ADD || rowCount ', resp.rowCount)
+            console.log('RESPONSE: CART BACKUP ADD || rowCount ', resp.rowCount)
         })
         .catch((error) => {
-            if (enable_exception_log == 1)
-                console.log('ERROR: upsertAbandonedInDb: CART BACKUP ADD: ', error)
+            console.log('ERROR: upsertAbandonedInDb: CART BACKUP ADD: ', error)
         });
-};
-
-const sendPushNotificationForNewCarts = ({ storeId, newCartsCount }) => {
-    const url = `${process.env.CCART_API_BASE}/notifications/store/${storeId}`;
-    const notificationBody = {
-        cartId: '0',
-        category: 'Cart',
-        status: 'new',
-        newCartsCount
-    }
-
-    axios.post(url, notificationBody)
-        .then(notificationResp => {
-            console.log("RESPONSE: sendPushNotificationForNewCarts: ", notificationResp.data);
-        })
-        .catch(error => {
-            if (enable_log_detail == 1)
-                console.log(`ERROR: sendPushNotificationForNewCarts: /acb/api/v1/notifications/store/${storeId} => `, error.message)
-        });
-}
-
-/**
- * Function to Create Buyer
- * @param    {Object} abandonedCart        Abandoned Cart
- * @param    {String} accessToken          Access Token
- * @param    {Object} store                Store
- * @return   {Object}                      Returns success and data object
- */
-const createBuyer = ({ abandonedCart, accessToken, store }) => {
-    const buyerPhoneNumber = abandonedCart['shipping_address'].phone;
-    dbBuyerService.isBuyerExist(store.shopify_store_id, abandonedCart.email, buyerPhoneNumber)
-        .then(async isBuyer => {
-            if (!isBuyer) {
-                //create zabooni & DB buyer
-                const customer = {
-                    first_name: abandonedCart.customer.first_name,
-                    last_name: abandonedCart.customer.last_name,
-                    addresses: [
-                        {
-                            street_1: abandonedCart.customer.default_address.address1,
-                            city: abandonedCart.customer.default_address.city,
-                            country:
-                            {
-                                code: abandonedCart.customer.default_address.country_code,
-                                name: abandonedCart.customer.default_address.country_name
-                            }
-                        }
-                    ]
-                };
-                if (buyerPhoneNumber) {
-                    customer.phone_numbers = [
-                        { phone_number: buyerPhoneNumber }
-                    ]
-                }
-                if (abandonedCart.email) {
-                    customer.email_addresses = [
-                        { address: abandonedCart.email }
-                    ]
-                }
-                zabooniBuyerService.createBuyer(store.shopify_store_id, accessToken, customer, abandonedCart.id)
-                    .then(buyerResponse => {
-                        if (buyerResponse.success) {
-                            if (enable_log_detail == 1) {
-                                console.log('RESPONSE: Buyer created successfully in zabooni: ', { store, abandonedCartId: abandonedCart?.id, customerId: abandonedCart?.customer?.id, buyerResponse })
-                                console.log(`RESPONSE: Buyer created successfully in zabooni for Store ID : ${store.shopify_store_id} and Store Name : ${store.shopify_store_name}`)
-                            }
-                        } else {
-                            if (enable_log_detail == 1) {
-                                console.log('Error to create buyer in zabooni: ', { store, abandonedCartId: abandonedCart?.id, customerId: abandonedCart?.customer?.id, isBuyer, buyerResponse })
-                                console.log(`Error to create buyer in zabooni for Store ID : ${store.shopify_store_id} and Store Name : ${store.shopify_store_name}`)
-                            }
-                        }
-                    })
-                    .catch(exc => {
-                        console.log('Exception to create buyer in zabooni: ', exc.message)
-                    });
-            } else {
-                // buyer exist
-                if (enable_log_detail == 1) {
-                    console.log('Buyer Exist....', { store, abandonedCartId: abandonedCart?.id, customerId: abandonedCart?.customer?.id })
-                    console.log(`Buyer Exist for Store ID : ${store.shopify_store_id} and Store Name : ${store.shopify_store_name}`)
-                }
-            }
-        })
-        .catch(exc => {
-            if (enable_exception_log == 1)
-                console.log('ERROR: Create Buyer: ', exc.message)
-        })
 };
 
 /**
@@ -565,8 +425,8 @@ exports.updateTotalLineItemCount = async (cartId = null, storeId = null, variant
                                             }
                                         })
                                         .catch(error => {
-                                            if (enable_exception_log == 1)
-                                                console.log('ERROR: getProductDetails: ', error)
+
+                                            console.log('ERROR: getProductDetails: ', error)
                                         })
                                 }
                             } else {
@@ -574,10 +434,10 @@ exports.updateTotalLineItemCount = async (cartId = null, storeId = null, variant
                             }
                         }
                     })
-                    .catch(error => { if (enable_exception_log == 1) console.log('ERROR: Get Cart Data by ID: ', error.message) });
+                    .catch(error => { console.log('ERROR: Get Cart Data by ID: ', error.message) });
             }
         })
-        .catch(error => { if (enable_exception_log == 1) console.log('ERROR: Total Line Count: ', error.message) });
+        .catch(error => { console.log('ERROR: Total Line Count: ', error.message) });
 };
 
 /**
@@ -608,8 +468,8 @@ const getProductDetails2 = async (lineItem, storeId) => {
             } : [];
         }
     } catch (exception) {
-        if (enable_exception_log == 1)
-            console.log('exception in getProductDetails', exception)
+
+        console.log('exception in getProductDetails', exception)
     }
 };
 
@@ -660,25 +520,25 @@ const updateDraftOrderByCartId = async (cartId) => {
 
                     updateDraftOrderByIdOnShopify(updateDraftOrderObj)
                         .then(resp => {
-                            enable_log_detail == 1 && console.log('RESPONSE: ', new Date(), ' updateDraftOrderOnShopify: ', { status: resp.status, statusText: resp.statusText });
+                            console.log('RESPONSE: ', new Date(), ' updateDraftOrderOnShopify: ', { status: resp.status, statusText: resp.statusText });
 
                             if (resp.status === 200) {
-                                if (enable_log_detail == 1) console.log("Draft Order has been Updated Successfully with status code: ", resp.status)
+                                console.log("Draft Order has been Updated Successfully with status code: ", resp.status)
                                 return;
                             } else {
-                                if (enable_log_detail == 1) console.log("Something went wrong!. Draft Order has not been updated with status code: ", resp.status)
+                                console.log("Something went wrong!. Draft Order has not been updated with status code: ", resp.status)
                                 return
                             }
                         })
                         .catch(error => {
-                            if (enable_exception_log == 1) console.log('ERROR: updateDraftOrderOnShopify: ', JSON.stringify(error))
+                            console.log('ERROR: updateDraftOrderOnShopify: ', JSON.stringify(error))
                             return
                         });
                 }
 
             }
         }).catch(error => {
-            if (enable_exception_log == 1) console.log('ERROR: getCartsWithDraftOrderIdAcrossStore: ', error.message)
+            console.log('ERROR: getCartsWithDraftOrderIdAcrossStore: ', error.message)
             return
         });
 }
@@ -701,7 +561,7 @@ const updateDraftOrderByIdOnShopify = async ({ shopifyCreds, draftOrderId, custo
         const response = await draftOrderClient.put(`/draft_orders/${draftOrderId}.json`, body);
         return response;
     } else
-        if (enable_log_detail == 1) console.log('updateDraftOrderByIdOnShopify 3: No body found.');
+        console.log('updateDraftOrderByIdOnShopify 3: No body found.');
 };
 
 /**

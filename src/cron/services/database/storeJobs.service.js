@@ -36,33 +36,14 @@ const upsertStoreJob = async (store) => {
             const res = await query(upsertStoreJobQuery);
             return res.rowCount
         } catch (exc) {
-            if (enable_exception_log == 1)
                 console.log('exception in upsert store job query run', exc);
             return exc;
         }
     } catch (exc) {
-        if (enable_exception_log == 1)
             console.log('exc in upsert store job', exc)
     }
 }
 
-/**
- * Function to Get Job by Store Id
- * @param    {String} storeId              Store Id
- * @return   {Object}                      Returns response after query process
- */
-const getJobByStoreId = async (storeId) => {
-    try {
-        const cartsCountQuery = queries.getWhereQuery(tables.store_jobs, `store_id='${storeId}'`);
-        return await query(cartsCountQuery);
-    } catch (exc) {
-        if (enable_exception_log == 1)
-            console.log('exception in creating store job', exc);
-        return false;
-    }
-}
-
 module.exports = {
-    upsertStoreJob,
-    getJobByStoreId,
+    upsertStoreJob
 }
