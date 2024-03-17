@@ -25,7 +25,7 @@ const { healthCheckResponse } = require("../utils/common");
 const { encryptData } = require("../utils/encryption");
 
 // Getting environments
-const { JWT_SECRET } = process.env;
+const { JWT_SECRET, REFRESH_TOKEN_SECRET } = process.env;
 
 // =============================================== Controllers ========================================================
 
@@ -33,7 +33,7 @@ const { JWT_SECRET } = process.env;
 exports.health = (req, res, next) => res.reply(healthCheckResponse);
 
 // Sign up
-exports.signup = async (req, res, next) => {
+exports.signUp = async (req, res, next) => {
     try {
         const { email, username, password, currency } = req.body;
 
@@ -54,13 +54,14 @@ exports.signup = async (req, res, next) => {
 };
 
 // Sign in
-exports.signin = async (req, res, next) => {
+exports.signIn = async (req, res, next) => {
     try {
         const { email, password } = req.body;
         const dbUserRes = await query(signInQuery(), [email, sha1(password)]);
         if (dbUserRes.rowCount > 0) {
-            const token = jwt.sign(dbUserRes.rows[0], JWT_SECRET, { expiresIn: '1h' });
-            return res.reply({ statusCode: 200, message: "Sign in successful", data: { token: token } });
+            const token = jwt.sign({ user_id: dbUserRes.rows[0]?.id }, JWT_SECRET, { expiresIn: '15m' });
+            const refresh_token = jwt.sign({ user_id: dbUserRes.rows[0]?.id }, REFRESH_TOKEN_SECRET);
+            return res.reply({ statusCode: 200, message: "Sign in successful", data: { token, refresh_token } });
         } else {
             return res.reply({ statusCode: 400, message: "Invalid credentials" });
         }
@@ -71,14 +72,13 @@ exports.signin = async (req, res, next) => {
 };
 
 // Update password
-exports.updatepassword = async (req, res, next) => {
+exports.updatePassword = async (req, res, next) => {
     try {
         const { password } = req.body;
         const { email } = req.userData
         const queryUpdatePassword = updatePasswordAccrossEmail();
         await query(queryUpdatePassword, [sha1(password), email]);
         return res.reply({ statusCode: 200, message: "Password updated successfully" });
-
     } catch (err) {
         console.log(err);
         return res.reply({ statusCode: 400, message: "Something went wrong", error: err });
@@ -86,10 +86,10 @@ exports.updatepassword = async (req, res, next) => {
 };
 
 // Connect store
-exports.connectstore = async (req, res, next) => {
+exports.connectStore = async (req, res, next) => {
     try {
         const { store_type, store_credentials_details } = req.body;
-        await query(connectStoreWithUser(), [store_type, encryptData(JSON.stringify(store_credentials_details)), req.userData.id]);
+        await query(connectStoreWithUser(), [store_type, encryptData(JSON.stringify(store_credentials_details)), req.userData.user_id]);
         return res.reply({ statusCode: 200, message: "Store connected successfully" });
 
     } catch (err) {
@@ -99,7 +99,7 @@ exports.connectstore = async (req, res, next) => {
 };
 
 // Update notification
-exports.updatenotificationsetting = async (req, res, next) => {
+exports.updateNotificationSetting = async (req, res, next) => {
     try {
         const { is_enabled } = req.body;
 
@@ -109,9 +109,7 @@ exports.updatenotificationsetting = async (req, res, next) => {
             : dbRes = await query(updateNotificationSettingQuery(), [false, false, false, req.userData.user_id]);
 
         if (dbRes.rowCount > 0) {
-            const dbUserRes = await query(getUserDetailById(), [req.userData.user_id]);
-            const token = jwt.sign(dbUserRes.rows[0], JWT_SECRET, { expiresIn: '1h' });
-            return res.reply({ statusCode: 200, message: "Notification settings updated successfully", data: { token: token } });
+            return res.reply({ statusCode: 200, message: "Notification settings updated successfully" });
         } else {
             return res.reply({ statusCode: 400, message: "Something went wrong" });
         }
@@ -122,10 +120,23 @@ exports.updatenotificationsetting = async (req, res, next) => {
 };
 
 // Get user details
-exports.userdetails = async (req, res, next) => {
+exports.userDetails = async (req, res, next) => {
     try {
-        const { userData } = req;
-        return res.reply({ statusCode: 200, message: "User details fetched successfully", data: userData });
+        const { user_id } = req.userData;
+        const dbUserRes = await query(getUserDetailById(), [user_id]);
+        return res.reply({ statusCode: 200, message: "User details fetched successfully", data: dbUserRes.rows[0] });
+    } catch (err) {
+        console.log(err);
+        return res.reply({ statusCode: 400, message: "Something went wrong", error: err });
+    }
+};
+
+// Refresh token
+exports.refreshToken = async (req, res, next) => {
+    try {
+        const { user_id } = req.userData;
+        const token = jwt.sign({ user_id }, JWT_SECRET, { expiresIn: '15m' });
+        return res.reply({ statusCode: 200, message: "Token refreshed", data: { token } });
     } catch (err) {
         console.log(err);
         return res.reply({ statusCode: 400, message: "Something went wrong", error: err });

@@ -6,7 +6,7 @@
 const response = require('./response');
 
 // API Middlewares
-const { apiAuth, pass, cartSummaryAuth } = require('./apiAuth');
+const { apiAuth, pass, refreshAuthToken } = require('./apiAuth');
 
 // Error handler middleware
 const errorHandler = require('./errorHandler');
@@ -16,5 +16,5 @@ module.exports = {
     apiAuth,
     pass,
     errorHandler,
-    cartSummaryAuth
+    refreshAuthToken
 };

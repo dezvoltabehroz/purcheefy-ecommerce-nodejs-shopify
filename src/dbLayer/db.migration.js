@@ -45,7 +45,9 @@ module.exports = {
     password varchar(256) NULL,
     email varchar(256) NULL,
     currency character varying(256) COLLATE pg_catalog."default" NOT NULL DEFAULT 'PKR'::character varying,
-    subscribe_marketing boolean NOT NULL DEFAULT false
+    subscribe_marketing boolean NOT NULL DEFAULT false,
+    is_subscribed boolean NOT NULL DEFAULT true,
+    is_payment_paid boolean NOT NULL DEFAULT true
   )`,
   createStoreDetailsTableQuery: () => `create table if not exists ${db_database}.store_details
   (

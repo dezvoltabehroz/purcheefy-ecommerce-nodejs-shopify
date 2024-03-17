@@ -23,7 +23,7 @@ module.exports = {
         where user_id = $4`,
 
     // Retrieves the record from the shopify_store_info table based on the email address
-    signInQuery: () => `select * from ${tableObj.customers} 
+    signInQuery: () => `select ${tableObj.customers}.id from ${tableObj.customers} 
         inner join ${tableObj.notification_settings} on ${tableObj.customers}.id = ${tableObj.notification_settings}.user_id
         where email = $1 and password = $2`,
 
