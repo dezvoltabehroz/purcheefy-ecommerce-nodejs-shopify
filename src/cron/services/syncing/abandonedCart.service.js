@@ -33,9 +33,6 @@ const dbBuyerService = require("../database/buyer.service");
 // Getting Auth Services
 const authService = require("../zabooni/auth.service");
 
-// Getting Firebase events controller
-const firebaseEventController = require("../../controllers/firebaseEvent.controller");
-
 // Getting Store controller
 const storeController = require('../../controllers/store.controller');
 
